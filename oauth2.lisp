@@ -3,7 +3,7 @@
   (:export :request-code :request-token :request-resource :refresh-token
            :authorization-error :error-code :error-body
            :token-string :token-type :token-expires-in
-           :token-refresh-token :token-scope :token-from-string)
+           :token-refresh-token :token-scope :token-from-string :facebook-token->alist)
   (:documentation
    "This package contains a fairly low-level implementation of the OAUTH2 protocol.
 It currently only supports \"Authorization Code Grant\" (section 4.1 if the draft)
@@ -108,7 +108,20 @@ it will be one of the following:
   (make-token :string string :type "Bearer"
               :expires-in expires-in :refresh-token refresh-token :scope scope))
 
-(defmacro with-handle-token (token)
+(defun facebook-token->alist (str)
+  (list* 
+    (cons :token--type "Bearer")
+    (loop for i in (ppcre:split "&" str)
+          collect (let ((data (ppcre:split "=" i)))
+                    (cons 
+                      (cond 
+                        ((string= (car data) "access_token" ) :access--token)
+                        ((string= (car data) "expires") :expires--in))
+                      (if (string= (car data) "expires")
+                        (parse-integer (second data))
+                        (second data)))))))
+
+(defmacro with-handle-token (token &optional token-parser)
   "Handle the return value you get from a request for a token. Used by request-token and refresh-token."
   `(multiple-value-bind (body code) ,token
      (case code
@@ -119,17 +132,17 @@ it will be one of the following:
                                 :uri (assoc1 :error--uri data)
                                 :description (assoc1 :error--description data)))))
        (200
-        (let ((data (parse-json body)))
+        (let ((data (funcall ,(or token-parser #'parse-json) body)))
           (make-token
-           :string (assoc1 :access--token data)
-           :type   (assoc1 :token--type data)
-           :expires-in (assoc1 :expires--in data)
-           :refresh-token (assoc1 :refresh--token data)
-           :scope (assoc1 :scope data))))
+            :string (assoc1 :access--token data)
+            :type   (assoc1 :token--type data)
+            :expires-in (assoc1 :expires--in data)
+            :refresh-token (assoc1 :refresh--token data)
+            :scope (assoc1 :scope data))))
        (t
         (error "Got an invalid response from server. Code: ~A" code)))))
 
-(defun request-token (authorizer code &key redirect-uri (method :get) other)
+(defun request-token (authorizer code &key redirect-uri (method :get) other (token-parser 'parse-json))
   "Request a token from the authorizer.
 
 CODE has to be authorization code. You can get it from calling REQUEST-CODE.
@@ -151,7 +164,8 @@ Returns a TOKEN."
         (http-request authorizer
                       :method method
                       :parameters data
-                      :redirect nil))))
+                      :redirect nil)
+        token-parser)))
 
 (defun plist-remove (key list)
   "Returns a copy of list with the key-value pair identified by KEY removed."
