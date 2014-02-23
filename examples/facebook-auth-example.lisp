@@ -7,7 +7,6 @@
   "Facebook app ID.")
 
 (defparameter *app-secret* NIL
-  "6094834c1ef28e5fb73cf786ba4e807f"
   "Facebook app secret")
 
 (defparameter *redirect-uri*
